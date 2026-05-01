@@ -38,13 +38,30 @@
 #include "core/stream/fileStream.h"
 #include "core/fileObject.h"
 
-#ifdef TORQUE_COLLADA
-extern TSShape* loadColladaShape(const Torque::Path &path);
-#endif
+Vector<TSShape::ShapeRegistration>   TSShape::sRegistrations(__FILE__, __LINE__);
 
-#ifdef TORQUE_ASSIMP
-extern TSShape* assimpLoadShape(const Torque::Path &path);
-#endif
+void TSShape::sRegisterFormat(const ShapeRegistration& reg)
+{
+   U32 insert = sRegistrations.size();
+   sRegistrations.insert(insert, reg);
+}
+
+const TSShape::ShapeRegistration* TSShape::sFindRegInfo(const String& extension, bool exporting)
+{
+   for (U32 i = 0; i < TSShape::sRegistrations.size(); i++)
+   {
+      const TSShape::ShapeRegistration& reg = TSShape::sRegistrations[i];
+      const Vector<ShapeFormat>& extensions = exporting ? reg.export_extensions : reg.extensions;
+
+      for (U32 j = 0; j < extensions.size(); j++)
+      {
+         if (extensions[j].mExtension.equal(extension, String::NoCase))
+            return &reg;
+      }
+   }
+
+   return NULL;
+}
 
 /// most recent version -- this is the version we write
 S32 TSShape::smVersion = 28;
@@ -2166,11 +2183,41 @@ template<> void *Resource<TSShape>::create(const Torque::Path &path)
    TSShape * ret = 0;
    bool readSuccess = false;
    const String extension = path.getExtension();
+   bool canLoadCached = false;
 
-   if ( extension.equal( "dts", String::NoCase ) )
+   // Generate the cached filename
+   Torque::Path cachedPath(path);
+   cachedPath.setExtension("cached.dts");
+
+   // Check if a cached DTS newer than this file is available
+   FileTime cachedModifyTime;
+   if (Platform::getFileTimes(cachedPath.getFullPath(), NULL, &cachedModifyTime))
+   {
+      bool forceLoadDAE = Con::getBoolVariable("$collada::forceLoadDAE", false);
+
+      FileTime daeModifyTime;
+      if (!Platform::getFileTimes(path.getFullPath(), NULL, &daeModifyTime) ||
+         (!forceLoadDAE && (Platform::compareFileTimes(cachedModifyTime, daeModifyTime) >= 0)))
+      {
+         // Non DTS not found, or cached DTS is newer
+         canLoadCached = true;
+      }
+   }
+
+   //assume the dts is good since it was zipped on purpose
+   Torque::FS::FileSystemRef ref = Torque::FS::GetFileSystem(cachedPath);
+   if (ref && !String::compare("Zip", ref->getTypeStr().c_str()))
+   {
+      bool forceLoadDAE = Con::getBoolVariable("$collada::forceLoadDAE", false);
+
+      if (!forceLoadDAE && Torque::FS::IsFile(cachedPath))
+         canLoadCached = true;
+   }
+
+   if (extension.equal("dts", String::NoCase) || canLoadCached)
    {
       FileStream stream;
-      stream.open( path.getFullPath(), Torque::FS::File::Read );
+      stream.open(canLoadCached ? cachedPath.getFullPath() : path.getFullPath(), Torque::FS::File::Read);
       if ( stream.getStatus() != Stream::Ok )
       {
          Con::errorf( "Resource<TSShape>::create - Could not open '%s'", path.getFullPath().c_str() );
@@ -2180,46 +2227,16 @@ template<> void *Resource<TSShape>::create(const Torque::Path &path)
       ret = new TSShape;
       readSuccess = ret->read(&stream);
    }
-   else if ( extension.equal( "dae", String::NoCase ) || extension.equal( "kmz", String::NoCase ) )
-   {
-#ifdef TORQUE_COLLADA
-      // Attempt to load the DAE file
-      ret = loadColladaShape(path);
-      readSuccess = (ret != NULL);
-#else
-      // No COLLADA support => attempt to load the cached DTS file instead
-      Torque::Path cachedPath = path;
-      cachedPath.setExtension("cached.dts");
-       
-      FileStream stream;
-      stream.open( cachedPath.getFullPath(), Torque::FS::File::Read );
-      if ( stream.getStatus() != Stream::Ok )
-      {
-         Con::errorf( "Resource<TSShape>::create - Could not open '%s'", cachedPath.getFullPath().c_str() );
-         return NULL;
-      }
-      ret = new TSShape;
-      readSuccess = ret->read(&stream);
-#endif
-   }
    else
    {
-      //Con::errorf( "Resource<TSShape>::create - '%s' has an unknown file format", path.getFullPath().c_str() );
-      //delete ret;
-      //return NULL;
-
-      // andrewmac: Open Asset Import Library
-#ifdef TORQUE_ASSIMP
-      ret = assimpLoadShape(path);
-      readSuccess = (ret != NULL);
-#endif
-
-      // andrewmac : I could have used another conditional macro but I think this is suffice:
-      if (!readSuccess)
+      const TSShape::ShapeRegistration* regInfo = TSShape::sFindRegInfo(extension);
+      if (regInfo == NULL)
       {
-         Con::errorf("Resource<TSShape>::create - '%s' has an unknown file format", path.getFullPath().c_str());
-         delete ret;
-         return NULL;
+         readSuccess = false;
+      }
+      else
+      {
+         readSuccess = regInfo->readFunc(path, ret);
       }
    }
 

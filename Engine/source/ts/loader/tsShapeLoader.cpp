@@ -36,11 +36,9 @@ MODULE_BEGIN( ShapeLoader )
    MODULE_INIT
    {
       TSShapeLoader::addFormat("Torque DTS", "dts");
-      TSShapeLoader::addFormat("Torque DSQ", "dsq");
    }
 MODULE_END;
 
-bool gTryUseDSQs = false;
 const F32 TSShapeLoader::DefaultTime = -1.0f;
 const F64 TSShapeLoader::MinFrameRate = 15.0f;
 const F64 TSShapeLoader::MaxFrameRate = 60.0f;
