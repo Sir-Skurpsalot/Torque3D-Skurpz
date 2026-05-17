@@ -127,6 +127,7 @@ ShapeBaseImageData::StateData::StateData()
    fire = false;
    altFire = false;
    reload = false;
+   altReload = false;
    energyDrain = 0;
    allowImageChange = true;
    loaded = IgnoreLoaded;
@@ -139,8 +140,7 @@ ShapeBaseImageData::StateData::StateData()
    shapeSequenceScale = true;
    script = 0;
    ignoreLoadedForReady = false;
-   
-   ejectShell = false;
+  
    scaleAnimation = false;
    scaleAnimationFP = false;
    sequenceTransitionIn = false;
@@ -196,6 +196,7 @@ ShapeBaseImageData::ShapeBaseImageData()
    fireState = -1;
    altFireState = -1;
    reloadState = -1;
+   altReloadState = -1; //Skurps
    computeCRC = false;
 
    animateAllShapes = true;
@@ -237,7 +238,7 @@ ShapeBaseImageData::ShapeBaseImageData()
       stateFire[i] = false;
       stateAlternateFire[i] = false;
       stateReload[i] = false;
-      stateEjectShell[i] = false;
+      stateAltReload[i] = false; //Skurps
       stateEnergyDrain[i] = 0;
       stateAllowImageChange[i] = true;
       stateScaleAnimation[i] = true;
@@ -268,15 +269,18 @@ ShapeBaseImageData::ShapeBaseImageData()
    maxConcurrentSounds = 0;
 
    useRemainderDT = false;
-
-   casing = NULL;
-   casingID = 0;
-   shellExitDir.set( 1.0, 0.0, 1.0 );
-   shellExitDir.normalize();
-   shellExitVariance = 20.0;
-   shellVelocity = 1.0;
    
-   fireStateName = NULL;
+   for(U32 i = 0; i < MaxDebris; i++) // Debris replacement for ejectShell stuff -Skurps
+   {
+      debris[i] = NULL;
+      debrisID[i] = 0;
+      debrisExitDir[i].set( 1.0, 0.0, 1.0 );
+      debrisExitDir[i].normalize();
+      debrisExitVariance[i] = 20.0;
+      debrisVelocity[i] = 1.0;
+   }
+   
+   //fireStateName = NULL; unused -Skurps
 
    for(U32 i=0; i<MaxShapes; ++i)
    {
@@ -284,7 +288,12 @@ ShapeBaseImageData::ShapeBaseImageData()
       mountTransform[i].identity();
       retractNode[i] = -1;
       muzzleNode[i] = -1;
-      ejectNode[i] = -1;
+      //Debris -Skurps
+      for(U32 j = 0; j < MaxDebris; j++)
+      {
+           ejectNode[i][j] = -1; // Skurps
+
+      }
       emitterNode[i] = -1;
       eyeMountNode[i] = -1;
       eyeNode[i] = -1;
@@ -351,7 +360,7 @@ bool ShapeBaseImageData::onAdd()
          s.fire = stateFire[i];
          s.altFire = stateAlternateFire[i];
          s.reload = stateReload[i];
-         s.ejectShell = stateEjectShell[i];
+         s.altReload = stateAltReload[i]; //Skurps
          s.energyDrain = stateEnergyDrain[i];
          s.allowImageChange = stateAllowImageChange[i];
          s.scaleAnimation = stateScaleAnimation[i];
@@ -398,6 +407,11 @@ bool ShapeBaseImageData::onAdd()
       // client when it recieves a reload event.
       if (s.reload && reloadState == -1)
          reloadState = i;
+
+      // The first state marked as "altReload" is the state entered on the
+      // client when it recieves an alt reload event.  -Skurps
+      if (s.altReload && altReloadState == -1)
+         altReloadState = i;
    }
 
    // Always preload images, this is needed to avoid problems with
@@ -485,7 +499,9 @@ bool ShapeBaseImageData::preload(bool server, String &errorStr)
          eyeNode[i]        = getShape(i)->findNode("eye");
          if (eyeNode[i] == -1)
             eyeNode[i] = eyeMountNode[i];
-         ejectNode[i]      = getShape(i)->findNode("ejectPoint");
+         ejectNode[i][0] = getShape(i)->findNode("ejectPoint0"); // Skurps
+         ejectNode[i][1] = getShape(i)-> findNode("ejectPoint1"); // Skurps
+         ejectNode[i][2] = getShape(i)-> findNode("ejectPoint2"); // Skurps
          muzzleNode[i]     = getShape(i)->findNode("muzzlePoint");
          retractNode[i]    = getShape(i)->findNode("retractionPoint");
          mountTransform[i] = mountOffset;
@@ -549,15 +565,20 @@ bool ShapeBaseImageData::preload(bool server, String &errorStr)
       }
    }
 
-   if( !casing && casingID != 0 )
+   // Debris - SKurps
+   for(U32 k = 0; k < MaxDebris; k++)
    {
-      if( !Sim::findObject( SimObjectId( casingID ), casing ) )
-      {
-         errorStr = String::ToString("ShapeBaseImageData::preload: Invalid packet, bad datablockId(casing): 0x%x", casingID );
-         return false;
-      }
+     if(!debris[k] && debrisID[k] != 0)
+     {
+        if( !Sim::findObject( SimObjectId( debrisID[k] ), debris[k] ) )
+        {
+           errorStr = String::ToString("ShapeBaseImageData::preload: Invalid packet, bad datablockId(debris[%u]): 0x%x",k,debrisID[k] );
+   
+            if( !Sim::findObject( SimObjectId( debrisID[k] ), debris[k] ) )
+               return false;
+        }
+     }
    }
-
 
    // Preload the shapes
    for( U32 i=0; i<MaxShapes; ++i)
@@ -626,22 +647,26 @@ void ShapeBaseImageData::initPersistFields()
    docsURL;
    addGroup("Shapes");
    INITPERSISTFIELD_SHAPEASSET_ARRAY_REFACTOR(Shape, MaxShapes, ShapeBaseImageData, "The shape assets for this shape image")
-
-      addField("casing", TYPEID< DebrisData >(), Offset(casing, ShapeBaseImageData),
-            "@brief DebrisData datablock to use for ejected casings.\n\n"
-            "@see stateEjectShell");
-      addField("shellExitDir", TypePoint3F, Offset(shellExitDir, ShapeBaseImageData),
-         "@brief Vector direction to eject shell casings.\n\n"
-         "@see casing");
-      addFieldV("shellExitVariance", TypeRangedF32, Offset(shellExitVariance, ShapeBaseImageData), &CommonValidators::DegreeRange,
-         "@brief Variance (in degrees) from the shellExitDir vector to eject casings.\n\n"
-         "@see shellExitDir");
-      addFieldV("shellVelocity", TypeRangedF32, Offset(shellVelocity, ShapeBaseImageData), &CommonValidators::PositiveFloat,
-         "@brief Speed at which to eject casings.\n\n"
-         "@see casing");
       addField("computeCRC", TypeBool, Offset(computeCRC, ShapeBaseImageData),
          "If true, verify that the CRC of the client's Image matches the server's "
          "CRC for the Image when loaded by the client.");
+      //  Debris array - Skurps
+      addArray("Debris",MaxDebris);
+                addField( "debris", TYPEID< DebrisData >(), Offset(debris, ShapeBaseImageData),MaxDebris,
+               "@brief DebrisData datablock to use for ejected weapon debris (max 3).\n\n");
+
+                addField( "debrisExitDir", TypePoint3F, Offset(debrisExitDir, ShapeBaseImageData),MaxDebris,
+               "@brief Vector direction to eject weapon debris.\n\n"
+               "@see debris");
+
+               addField( "debrisExitVariance", TypeF32, Offset(debrisExitVariance, ShapeBaseImageData),MaxDebris,
+               "@brief Variance (in degrees) from the debrisExitDir vector to eject weapon debris.\n\n"
+               "@see debrisExitDir");
+
+               addField( "debrisVelocity", TypeF32, Offset(debrisVelocity, ShapeBaseImageData), MaxDebris,
+               "@brief Speed at which to eject weapon debris.\n\n"
+               "@see debris");
+      endArray( "Debris" );
    endGroup("Shapes");
 
    addGroup("Animation");
@@ -879,8 +904,9 @@ void ShapeBaseImageData::initPersistFields()
       addField( "stateReload", TypeBool, Offset(stateReload, ShapeBaseImageData), MaxStates,
          "The first state with this set to true is the state entered by the "
          "client when it receives the 'reload' event." );
-      addField( "stateEjectShell", TypeBool, Offset(stateEjectShell, ShapeBaseImageData), MaxStates,
-         "If true, a shell casing will be ejected in this state." );
+      addField( "stateAltReload", TypeBool, Offset(stateAltReload, ShapeBaseImageData), MaxStates,
+         "The first state with this set to true is the state entered by the "
+         "client when it receives the 'altReload' event." ); //Skurps
       addFieldV( "stateEnergyDrain", TypeRangedF32, Offset(stateEnergyDrain, ShapeBaseImageData), &CommonValidators::PositiveFloat, MaxStates,
          "@brief Amount of energy to subtract from the Image in this state.\n\n"
          "Energy is drained at stateEnergyDrain units/tick as long as we are in "
@@ -998,7 +1024,8 @@ void ShapeBaseImageData::packData(BitStream* stream)
          stream->write(mCRC[j]);
       }
    }
-
+  
+   
    PACKDATA_ASSET_ARRAY_REFACTOR(Shape, MaxShapes);        // shape 0 for normal use, shape 1 for first person use (optional)
 
    stream->writeString(imageAnimPrefix);
@@ -1028,8 +1055,6 @@ void ShapeBaseImageData::packData(BitStream* stream)
       stream->writeFlag(hasFlash[j]);
    }
 
-   // Client doesn't need accuFire
-
    // Write the projectile datablock
    if (stream->writeFlag(projectile))
       stream->writeRangedU32(mPacked ? SimObjectId((uintptr_t)projectile):
@@ -1057,14 +1082,18 @@ void ShapeBaseImageData::packData(BitStream* stream)
       stream->write( camShakeFalloff );
    }
 
-   mathWrite( *stream, shellExitDir );
-   stream->write(shellExitVariance);
-   stream->write(shellVelocity);
-
-   if( stream->writeFlag( casing ) )
+   //Ejected Debris - Skurps
+   for(U32 i = 0; i < MaxDebris; i++)
    {
-      stream->writeRangedU32(mPacked ? SimObjectId((uintptr_t)casing):
-         casing->getId(),DataBlockObjectIdFirst,DataBlockObjectIdLast);
+        mathWrite( *stream, debrisExitDir[i]);
+        stream->write(debrisExitVariance[i]);
+        stream->write(debrisVelocity[i]);
+
+        if(stream->writeFlag(debris[i]))
+        {
+            stream->writeRangedU32(mPacked? SimObjectId((uintptr_t)debris[i]):
+            debris[i]->getId(),DataBlockObjectIdFirst,DataBlockObjectIdLast);
+        }
    }
 
    for (U32 i = 0; i < MaxStates; i++)
@@ -1074,7 +1103,7 @@ void ShapeBaseImageData::packData(BitStream* stream)
          //    s.allowImageChange
          //    s.scriptNames
          // Transitions are inc. one to account for -1 values
-         stream->writeString(state[i].name);
+         stream->writeString(state[i].name);      
 
          stream->writeInt(s.transition.loaded[0]+1,NumStateBits);
          stream->writeInt(s.transition.loaded[1]+1,NumStateBits);
@@ -1116,19 +1145,24 @@ void ShapeBaseImageData::packData(BitStream* stream)
          stream->writeFlag(s.fire);
          stream->writeFlag(s.altFire);
          stream->writeFlag(s.reload);
-         stream->writeFlag(s.ejectShell);
+         stream->writeFlag(s.altReload); //Skurps
+
          stream->writeFlag(s.scaleAnimation);
          stream->writeFlag(s.scaleAnimationFP);
          stream->writeFlag(s.direction);
-
+ 
          stream->writeFlag(s.sequenceTransitionIn);
          stream->writeFlag(s.sequenceTransitionOut);
          stream->writeFlag(s.sequenceNeverTransition);
+     
          if(stream->writeFlag(s.sequenceTransitionTime != gDefaultStateData.sequenceTransitionTime))
             stream->write(s.sequenceTransitionTime);
+  
 
          stream->writeString(s.shapeSequence);
+  
          stream->writeFlag(s.shapeSequenceScale);
+
 
          if(stream->writeFlag(s.energyDrain != gDefaultStateData.energyDrain))
             stream->write(s.energyDrain);
@@ -1136,17 +1170,21 @@ void ShapeBaseImageData::packData(BitStream* stream)
          stream->writeInt(s.loaded,StateData::NumLoadedBits);
          stream->writeInt(s.spin,StateData::NumSpinBits);
          stream->writeInt(s.recoil,StateData::NumRecoilBits);
+ 
 
          for( U32 j=0; j<MaxShapes; ++j )
          {
             if(stream->writeFlag(s.sequence[j] != gDefaultStateData.sequence[j]))
                stream->writeSignedInt(s.sequence[j], 16);
 
+  
             if(stream->writeFlag(s.sequenceVis[j] != gDefaultStateData.sequenceVis[j]))
                stream->writeSignedInt(s.sequenceVis[j],16);
 
+
             stream->writeFlag(s.flashSequence[j]);
          }
+
 
          stream->writeFlag(s.ignoreLoadedForReady);
 
@@ -1163,7 +1201,9 @@ void ShapeBaseImageData::packData(BitStream* stream)
          }
 
          PACKDATA_SOUNDASSET_ARRAY(stateSound, i);
+       
       }
+
    stream->write(maxConcurrentSounds);
    stream->writeFlag(useRemainderDT);
 }
@@ -1240,13 +1280,17 @@ void ShapeBaseImageData::unpackData(BitStream* stream)
       stream->read( &camShakeFalloff );
    }
 
-   mathRead( *stream, &shellExitDir );
-   stream->read(&shellExitVariance);
-   stream->read(&shellVelocity);
-
-   if(stream->readFlag())
+   // ejected debris -Skurps
+   for(U32 i = 0; i < MaxDebris; i++)
    {
-      casingID = stream->readRangedU32(DataBlockObjectIdFirst, DataBlockObjectIdLast);
+      mathRead( *stream, &debrisExitDir[i] );
+      stream->read(&debrisExitVariance[i]);
+      stream->read(&debrisVelocity[i]);
+
+      if(stream->readFlag())
+      {
+         debrisID[i] = stream->readRangedU32(DataBlockObjectIdFirst, DataBlockObjectIdLast);
+      }
    }
 
    for (U32 i = 0; i < MaxStates; i++) {
@@ -1308,7 +1352,7 @@ void ShapeBaseImageData::unpackData(BitStream* stream)
          s.fire = stream->readFlag();
          s.altFire = stream->readFlag();
          s.reload = stream->readFlag();
-         s.ejectShell = stream->readFlag();
+         s.altReload = stream->readFlag(); //Skurps
          s.scaleAnimation = stream->readFlag();
          s.scaleAnimationFP = stream->readFlag();
          s.direction = stream->readFlag();
@@ -1417,7 +1461,8 @@ ShapeBase::MountedImage::MountedImage()
    loaded = false;
    fireCount = 0;
    altFireCount = 0;
-   reloadCount = 0;
+   reloadCount = 0; 
+   altReloadCount = 0; //Skurps
    wet = false;
    motion = false;
    lightStart = 0;
@@ -1598,6 +1643,12 @@ bool ShapeBase::isImageReloading(U32 imageSlot)
 {
    MountedImage& image = mMountedImageList[imageSlot];
    return image.dataBlock && image.state->reload;
+}
+
+bool ShapeBase::isImageAltReloading(U32 imageSlot) //Skurps
+{
+   MountedImage& image = mMountedImageList[imageSlot];
+   return image.dataBlock && image.state->altReload;
 }
 
 bool ShapeBase::isImageReady(U32 imageSlot,U32 ns,U32 depth)
@@ -2242,7 +2293,6 @@ void ShapeBase::onImageAnimThreadUpdate(U32 imageSlot, S32 imageShapeIndex, F32 
 {
 }
 
-
 //----------------------------------------------------------------------------
 
 void ShapeBase::setImage(  U32 imageSlot, 
@@ -2356,6 +2406,8 @@ void ShapeBase::setImage(  U32 imageSlot,
    image.genericTrigger[2] = genericTrigger2;
    image.genericTrigger[3] = genericTrigger3;
 
+   onImage(imageSlot, false); //Skurps moved here from bottom so it does not destroy a shapeSequence thread in state 0.
+
    // The server needs the shape loaded for muzzle mount nodes
    // but it doesn't need to run any of the animations, unless the image
    // has animateOnServer set.  Then the server needs to animate as well.
@@ -2383,17 +2435,14 @@ void ShapeBase::setImage(  U32 imageSlot,
             image.flashThread[i] = image.shapeInstance[i]->addThread();
             image.shapeInstance[i]->setTimeScale(image.flashThread[i],0);
          }
-         if (image.dataBlock->ambientSequence[i] != -1) {
+         if (image.dataBlock->ambientSequence[i] != -1) { 
             image.ambientThread[i] = image.shapeInstance[i]->addThread();
-            image.shapeInstance[i]->setTimeScale(image.ambientThread[i],1);
-            image.shapeInstance[i]->setSequence(image.ambientThread[i],
-                                             image.dataBlock->ambientSequence[i],0);
+            image.shapeInstance[i]->setTimeScale(image.ambientThread[i],);
          }
          if (image.dataBlock->spinSequence[i] != -1) {
             image.spinThread[i] = image.shapeInstance[i]->addThread();
             image.shapeInstance[i]->setTimeScale(image.spinThread[i],1);
-            image.shapeInstance[i]->setSequence(image.spinThread[i],
-                                             image.dataBlock->spinSequence[i],0);
+            image.shapeInstance[i]->setSequence(image.spinThread[i],image.dataBlock->spinSequence[i],0);
          }
       }
    }
@@ -2416,11 +2465,9 @@ void ShapeBase::setImage(  U32 imageSlot,
          image.lightStart = Sim::getCurrentTime();
    }
 
-   onImage(imageSlot, false);
-
+   
    // Done.
 }
-
 
 //----------------------------------------------------------------------------
 
@@ -2572,6 +2619,14 @@ U32  ShapeBase::getImageReloadState(U32 imageSlot)
    return 0;
 }
 
+U32  ShapeBase::getImageAltReloadState(U32 imageSlot)  // Skurps
+{
+   MountedImage& image = mMountedImageList[imageSlot];
+   // If there is no altReload state, then try state 0
+   if (image.dataBlock && image.dataBlock->altReloadState != -1)
+      return image.dataBlock->altReloadState;
+   return 0;
+}
 
 //----------------------------------------------------------------------------
 
@@ -2622,14 +2677,16 @@ void ShapeBase::setImageState(U32 imageSlot, U32 newState, bool force)
          return;
    }
 
-   // Eject shell casing on every state change (client side only)
-   ShapeBaseImageData::StateData& nextStateData = image.dataBlock->state[newState];
-   if (isGhost() && nextStateData.ejectShell) {
-      ejectShellCasing(imageSlot);
+   // The client never enters the initial altReload state on its own, but it
+   //  will continue to set that state...  -Skurps
+   if (isGhost() && !force && newState == image.dataBlock->altReloadState) {
+      if (image.state != &image.dataBlock->state[newState])
+         return;
    }
 
-   // Shake camera on client.
-   if (isGhost() && nextStateData.fire && image.dataBlock->shakeCamera) {
+   // Shake camera on client. //Skurps added shake for altFire too
+   ShapeBaseImageData::StateData& nextStateData = image.dataBlock->state[newState];
+   if (isGhost() && (nextStateData.fire || nextStateData.altFire) && image.dataBlock->shakeCamera) {
       shakeCamera(imageSlot);
    }
 
@@ -2763,6 +2820,10 @@ void ShapeBase::setImageState(U32 imageSlot, U32 newState, bool force)
       setMaskBits(ImageMaskN << imageSlot);
       image.reloadCount = (image.reloadCount + 1) & 0x7;
    }
+   if (!isGhost() && image.dataBlock->state[newState].altReload) {  //Skurps
+      setMaskBits(ImageMaskN << imageSlot);
+      image.altReloadCount = (image.altReloadCount + 1) & 0x7;
+   }
 
    // Apply recoil
    if (stateData.recoil != ShapeBaseImageData::StateData::NoRecoil)
@@ -2801,6 +2862,7 @@ void ShapeBase::setImageState(U32 imageSlot, U32 newState, bool force)
 
    // Play animation
    updateAnimThread(imageSlot, imageShapeIndex, lastState);
+
    for (U32 i=0; i<ShapeBaseImageData::MaxShapes; ++i)
    {
       if (!image.dataBlock->shapeIsValid[i] || (i != imageShapeIndex && !image.doAnimateAllShapes))
@@ -3013,6 +3075,7 @@ void ShapeBase::updateAnimThread(U32 imageSlot, S32 imageShapeIndex, ShapeBaseIm
                String seqName = image.shapeInstance[i]->getShape()->getSequenceName(stateData.sequenceVis[i]);
                onImageAnimThreadChange(imageSlot, imageShapeIndex, lastState, seqName, stateData.direction ? 0.0f : 1.0f, stateData.direction ? timeScale : -timeScale);
             }
+
          }
       }
    }
@@ -3166,7 +3229,23 @@ void ShapeBase::updateImageAnimation(U32 imageSlot, F32 dt)
          image.shapeInstance[i]->advanceTime(dt,image.spinThread[i]);
       if (image.flashThread[i])
          image.shapeInstance[i]->advanceTime(dt,image.flashThread[i]);
+
+
+       // Debris [0-2] ejection -Skurps
+      if(isGhost())
+      {
+          if(image.shapeInstance[i]->getTriggerState( 4 ))
+              ejectDebris( imageSlot , 0);
+
+          if(image.shapeInstance[i]->getTriggerState( 5 ))
+             ejectDebris( imageSlot, 1);
+
+          if(image.shapeInstance[i]->getTriggerState( 6 ))
+             ejectDebris( imageSlot, 2);
+      }
+
    }
+
 
    // Broadcast the update
    onImageAnimThreadUpdate(imageSlot, imageShapeIndex, dt);
@@ -3220,7 +3299,6 @@ NetStringHandle ShapeBase::getImageScriptAnimPrefix(U32 imageSlot)
    MountedImage& image = mMountedImageList[imageSlot];
    return image.dataBlock? image.scriptAnimPrefix : NetStringHandle();
 }
-
 
 //----------------------------------------------------------------------------
 
@@ -3344,49 +3422,51 @@ void ShapeBase::submitLights( LightManager *lm, bool staticLighting )
 
 
 //----------------------------------------------------------------------------
-
-void ShapeBase::ejectShellCasing( U32 imageSlot )
+void ShapeBase::ejectDebris( U32 imageSlot , int debrisIndex) //Skurps replacement for ejectShellCasing
 {
-   MountedImage& image = mMountedImageList[imageSlot];
-   ShapeBaseImageData* imageData = image.dataBlock;
+    MountedImage& image = mMountedImageList[imageSlot];
+    ShapeBaseImageData* imageData = image.dataBlock;
 
-   if (!imageData->casing)
-      return;
+    if (!imageData->debris[debrisIndex])
+        return;
 
-   // Shell casings are client-side only, so use the render transform.
-   MatrixF ejectTrans;
-   getRenderImageTransform( imageSlot, imageData->ejectNode[getImageShapeIndex(image)], &ejectTrans );
+    //Ejected debris are client-side only, so use the render transform.
+    MatrixF ejectTrans;
+    Point3F debrisPos;
+    Point3F debrisVel;
 
-   Point3F ejectDir = imageData->shellExitDir;
-   ejectDir.normalize();
+    Debris *ejectedDebris = new Debris;
 
-   F32 ejectSpread = mDegToRad( imageData->shellExitVariance );
-   MatrixF ejectOrient = MathUtils::createOrientFromDir( ejectDir );
+    //Get render transform of either ejectPoint0,ejectPoint1, or ejectPoint3 nodes
+    getRenderImageTransform( imageSlot, imageData->ejectNode[getImageShapeIndex(image)][debrisIndex], &ejectTrans );
 
-   Point3F randomDir;
-   randomDir.x = mSin( gRandGen.randF( -ejectSpread, ejectSpread ) );
-   randomDir.y = 1.0;
-   randomDir.z = mSin( gRandGen.randF( -ejectSpread, ejectSpread ) );
-   randomDir.normalizeSafe();
+    Point3F ejectDir = imageData->debrisExitDir[debrisIndex];
+    ejectDir.normalize();
 
-   ejectOrient.mulV( randomDir );
+    F32 ejectSpread = mDegToRad( imageData->debrisExitVariance[debrisIndex]);
+    MatrixF ejectOrient = MathUtils::createOrientFromDir( ejectDir );
 
-   MatrixF imageTrans = getRenderTransform();
-   imageTrans.mulV( randomDir );
+    Point3F randomDir;
+    randomDir.x = mSin( gRandGen.randF( -ejectSpread, ejectSpread ) );
+    randomDir.y = 1.0;
+    randomDir.z = mSin( gRandGen.randF( -ejectSpread, ejectSpread ) );
+    randomDir.normalizeSafe();
 
-   Point3F shellVel = randomDir * imageData->shellVelocity;
-   Point3F shellPos = ejectTrans.getPosition();
+    ejectOrient.mulV( randomDir );
+    ejectTrans.mulV( randomDir );
 
+    debrisVel = randomDir * imageData->debrisVelocity[debrisIndex];
 
-   Debris *casing = new Debris;
-   casing->onNewDataBlock( imageData->casing, false );
-   casing->setTransform( imageTrans );
+    ejectedDebris->onNewDataBlock( imageData->debris[debrisIndex], false );
+    ejectedDebris->setTransform( ejectTrans );
 
-   if (!casing->registerObject())
-      delete casing;
-   else
-      casing->init( shellPos, shellVel );
+    debrisPos = ejectTrans.getPosition();
+    if (!ejectedDebris->registerObject())
+        delete ejectedDebris;
+    else
+        ejectedDebris->init( debrisPos, debrisVel );
 }
+
 
 void ShapeBase::shakeCamera( U32 imageSlot )
 {
