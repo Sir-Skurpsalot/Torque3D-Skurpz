@@ -320,8 +320,7 @@ bool ShapeBaseData::preload(bool server, String &errorStr)
       {
          if( Sim::findObject( explosionID, explosion ) == false)
          {
-            errorStr = String::ToString("ShapeBaseData::preload: Invalid packet, bad datablockId(explosion): 0x%x", explosionID );
-            return false;
+            Con::errorf( ConsoleLogEntry::General, "ShapeBaseData::preload: Invalid packet, bad datablockId(explosion): 0x%x", explosionID );
          }
          AssertFatal(!(explosion && ((explosionID < DataBlockObjectIdFirst) || (explosionID > DataBlockObjectIdLast))),
             "ShapeBaseData::preload: invalid explosion data");
@@ -331,8 +330,7 @@ bool ShapeBaseData::preload(bool server, String &errorStr)
       {
          if( Sim::findObject( underwaterExplosionID, underwaterExplosion ) == false)
          {
-            errorStr = String::ToString("ShapeBaseData::preload: Invalid packet, bad datablockId(underwaterExplosion): 0x%x", underwaterExplosionID );
-            return false;
+            Con::errorf( ConsoleLogEntry::General, "ShapeBaseData::preload: Invalid packet, bad datablockId(underwaterExplosion): 0x%x", underwaterExplosionID );
          }
          AssertFatal(!(underwaterExplosion && ((underwaterExplosionID < DataBlockObjectIdFirst) || (underwaterExplosionID > DataBlockObjectIdLast))),
             "ShapeBaseData::preload: invalid underwaterExplosion data");
@@ -341,11 +339,6 @@ bool ShapeBaseData::preload(bool server, String &errorStr)
       if( !debris && debrisID != 0 )
       {
          Sim::findObject( debrisID, debris );
-         if (Sim::findObject(debrisID, debris) == false)
-         {
-            errorStr = String::ToString("ShapeBaseData::preload: Invalid packet, bad datablockId(debris): 0x%x", debrisID);
-            return false;
-         }
          AssertFatal(!(debris && ((debrisID < DataBlockObjectIdFirst) || (debrisID > DataBlockObjectIdLast))),
             "ShapeBaseData::preload: invalid debris data");
       }
@@ -3261,9 +3254,11 @@ U32 ShapeBase::packUpdate(NetConnection *con, U32 mask, BitStream *stream)
             stream->writeInt(image.fireCount,3);            
             stream->writeInt(image.altFireCount,3);
             stream->writeInt(image.reloadCount,3);
+            stream->writeInt(image.altReloadCount,3); //Skurps
             stream->writeFlag(isImageFiring(i));
             stream->writeFlag(isImageAltFiring(i));
             stream->writeFlag(isImageReloading(i));
+            stream->writeFlag(isImageAltReloading(i)); //Skurps
          }
    }
 
@@ -3404,6 +3399,7 @@ void ShapeBase::unpackUpdate(NetConnection *con, BitStream *stream)
             S32 count = stream->readInt(3);
             S32 altCount = stream->readInt(3);
             S32 reloadCount = stream->readInt(3);
+            S32 altReloadCount = stream->readInt(3); //Skurps
 
             bool datablockChange = image.dataBlock != imageData;
             if (datablockChange || (image.skinNameHandle != skinDesiredNameHandle))
@@ -3423,13 +3419,14 @@ void ShapeBase::unpackUpdate(NetConnection *con, BitStream *stream)
                // We don't have a new image, but we do have a new script anim prefix to work with.
                // Notify the image of this change.
                MountedImage& animImage = mMountedImageList[i];
-			   animImage.scriptAnimPrefix = scriptDesiredAnimPrefix;
+			      animImage.scriptAnimPrefix = scriptDesiredAnimPrefix;
                updateAnimThread(i, getImageShapeIndex(animImage));
             }
 
             bool isFiring = stream->readFlag();
             bool isAltFiring = stream->readFlag();
             bool isReloading = stream->readFlag();
+            bool isAltReloading = stream->readFlag(); //Skurps
 
             if (isProperlyAdded()) {
                // Normal processing
@@ -3451,6 +3448,11 @@ void ShapeBase::unpackUpdate(NetConnection *con, BitStream *stream)
                   image.reloadCount = reloadCount;
                   setImageState(i,getImageReloadState(i),true);
                }
+               else if (altReloadCount != image.altReloadCount) // Skurps
+               {
+                  image.altReloadCount = altReloadCount;
+                  setImageState(i,getImageAltReloadState(i),true);
+               }
 
                if (processFiring && imageData)
                {
@@ -3468,12 +3470,15 @@ void ShapeBase::unpackUpdate(NetConnection *con, BitStream *stream)
                   image.fireCount = count;
                   image.altFireCount = altCount;
                   image.reloadCount = reloadCount;
+                  image.altReloadCount = altReloadCount; // Skurps
                   if (isFiring)
                      setImageState(i,getImageFireState(i),true);
                   else if (isAltFiring)
                      setImageState(i,getImageAltFireState(i),true);
                   else if (isReloading)
                      setImageState(i,getImageReloadState(i),true);
+                  else if (isAltReloading) // Skurps
+                     setImageState(i,getImageAltReloadState(i),true);
                }
             }
          }
