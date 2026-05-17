@@ -152,6 +152,7 @@ struct ShapeBaseImageData: public GameBaseData, protected AssetPtrCallback
 
       MaxShapes    = 2,             ///< The number of allowed shapes per image.  Only
                                     /// the first shape is required.
+      MaxDebris = 3,                /// Max number of ejected debris objects allowed per image - Skurps
 
       MaxGenericTriggers = 4,       ///< The number of generic triggers for the image.
 
@@ -198,7 +199,7 @@ struct ShapeBaseImageData: public GameBaseData, protected AssetPtrCallback
       bool fire;                    ///< Can only have one fire state
       bool altFire;                 ///< Can only have one alternate fire state
       bool reload;                  ///< Can only have one reload state
-      bool ejectShell;              ///< Should we eject a shell casing in this state?
+      bool altReload;               ///< Alt reload state -Skurps
       bool allowImageChange;        ///< Can we switch to another image while in this state?
                                     ///
                                     ///  For instance, if we have a rocket launcher, the player
@@ -306,7 +307,7 @@ struct ShapeBaseImageData: public GameBaseData, protected AssetPtrCallback
    bool                    stateFire                  [MaxStates];
    bool                    stateAlternateFire         [MaxStates];
    bool                    stateReload                [MaxStates];
-   bool                    stateEjectShell            [MaxStates];
+   bool                    stateAltReload             [MaxStates]; //Skurps
    F32                     stateEnergyDrain           [MaxStates];
    bool                    stateAllowImageChange      [MaxStates];
    bool                    stateScaleAnimation        [MaxStates];
@@ -434,9 +435,9 @@ struct ShapeBaseImageData: public GameBaseData, protected AssetPtrCallback
    S32 muzzleNode[MaxShapes];    ///< Muzzle node ID.
                                  ///
                                  ///
-   S32 ejectNode[MaxShapes];     ///< Ejection node ID.
+   S32 ejectNode[MaxShapes][MaxDebris];  ///< Skurps Ejection node ID.
+                                 ///  The eject nodes are the nodes on the image from which weapon debris (brass, empty mags, etc) are ejected.
                                  ///
-                                 ///  The eject node is the node on the image from which shells are ejected.
    S32 emitterNode[MaxShapes];   ///< Emitter node ID.
                                  ///
                                  ///  The emitter node is the node from which particles are emitted.
@@ -456,24 +457,23 @@ struct ShapeBaseImageData: public GameBaseData, protected AssetPtrCallback
    S32 fireState;                   ///< The ID of the fire state.
    S32 altFireState;                ///< The ID of the alternate fire state.
    S32 reloadState;                 ///< The ID of the reload state
+   S32 altReloadState;              ///< The ID of the alt reload state -Skurps
    /// @}
 
-   /// @name Shell casing data
+   /// @name Ejected debris data
    /// @{
-   DebrisData *   casing;              ///< Information about shell casings.
+   DebrisData *   debris[MaxDebris];              ///< Skurps Debris, replaces and expands old shell casing stuff
 
-   S32            casingID;            ///< ID of casing datablock.
-                                       ///
-                                       ///  When the network tells the client about the casing, it
-                                       ///  it transmits the ID of the datablock. The datablocks
-                                       ///  having previously been transmitted, all the client
-                                       ///  needs to do is call Sim::findObject() and look up the
-                                       ///  the datablock.
+   S32            debrisID[MaxDebris];            ///< ID of casing datablock.
+                                                  ///  When the network tells the client about the debris, it
+                                                  ///  it transmits the ID of the datablock. The datablocks
+                                                  ///  having previously been transmitted, all the client
+                                                  ///  needs to do is call Sim::findObject() and look up the
+                                                  ///  the datablock.
 
-   Point3F        shellExitDir;        ///< Vector along which to eject shells from the image.
-   F32            shellExitVariance;   ///< Variance from this vector in degrees.
-   F32            shellVelocity;       ///< Velocity with which to eject shell casings.
-   /// @}
+   Point3F        debrisExitDir[MaxDebris];        ///< Vector along which to eject debris from the image.
+   F32            debrisExitVariance[MaxDebris];   ///< Variance from this vector in degrees.
+   F32            debrisVelocity[MaxDebris];       ///< Velocity with which to eject debris.
 
    /// @name State Array
    ///
@@ -835,6 +835,7 @@ protected:
                                     ///< @see fireCount
 
       U32 reloadCount;              ///< Reload skip count.
+      U32 altReloadCount;           ///< altReload skip count.
                                     ///< @see fireCount
 
       bool triggerDown;             ///< Is the trigger down?
@@ -1087,6 +1088,8 @@ protected:
    /// @param   imageSlot   Image slot id
    U32  getImageReloadState(U32 imageSlot);
 
+   U32  getImageAltReloadState(U32 imageSlot); //Skurps
+
    /// Sets the state of the image by state index
    /// @param   imageSlot   Image slot id
    /// @param   state       State id
@@ -1147,7 +1150,7 @@ protected:
    virtual void onImageStateAnimation(U32 imageSlot, const char* seqName, bool direction, bool scaleToState, F32 stateTimeOutValue);
    virtual void onImageAnimThreadChange(U32 imageSlot, S32 imageShapeIndex, ShapeBaseImageData::StateData* lastState, const char* anim, F32 pos, F32 timeScale, bool reset=false);
    virtual void onImageAnimThreadUpdate(U32 imageSlot, S32 imageShapeIndex, F32 dt);
-   virtual void ejectShellCasing( U32 imageSlot );
+   virtual void ejectDebris( U32 imageSlot , int debrisType); //Skurps
    virtual void shakeCamera( U32 imageSlot );
    virtual void updateDamageLevel();
    virtual void updateDamageState();
@@ -1482,6 +1485,10 @@ public:
    /// @param   imageSlot   Mountpoint
    bool isImageReloading(U32 imageSlot);
 
+   /// Returns true if the mounted image is altReloading  -Skurps
+   /// @param   imageSlot   Mountpoint
+   bool isImageAltReloading(U32 imageSlot);
+
    /// This will return true if, when triggered, the object will fire.
    /// @param   imageSlot   mount point
    /// @param   ns          Used internally for recursion, do not mess with
@@ -1590,7 +1597,6 @@ public:
 
    /// Get the script animation prefix for the image
    /// @param   imageSlot        Image slot id
-   /// @param   imageShapeIndex  Shape index (1st person, etc.) used to look up the prefix text
    NetStringHandle getImageScriptAnimPrefix(U32 imageSlot);
 
    /// Modify muzzle, if needed, to aim at whatever is straight in front of eye.
