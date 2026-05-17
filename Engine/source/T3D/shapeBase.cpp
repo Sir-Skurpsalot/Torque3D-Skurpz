@@ -341,13 +341,14 @@ bool ShapeBaseData::preload(bool server, String &errorStr)
       if( !debris && debrisID != 0 )
       {
          Sim::findObject( debrisID, debris );
-         AssertFatal(!(debris && ((debrisID < DataBlockObjectIdFirst) || (debrisID > DataBlockObjectIdLast))),
-            "ShapeBaseData::preload: invalid debris data");
+        
          if (Sim::findObject(debrisID, debris) == false)
          {
             errorStr = String::ToString("ShapeBaseData::preload: Invalid packet, bad datablockId(debris): 0x%x", debrisID);
             return false;
          }
+          AssertFatal(!(debris && ((debrisID < DataBlockObjectIdFirst) || (debrisID > DataBlockObjectIdLast))),
+            "ShapeBaseData::preload: invalid debris data");
       }
 
       if(getDebrisShape())
