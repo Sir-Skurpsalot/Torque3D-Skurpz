@@ -337,6 +337,14 @@ void AssimpShapeLoader::enumerateScene()
    // Load all materials
    AssimpAppMaterial::sDefaultMatNumber = 0;
    for (U32 i = 0; i < mScene->mNumMaterials; ++i) {
+
+      if (FindMatch::isMatchMultipleExprs(ColladaUtils::getOptions().neverImportMat,
+         mScene->mMaterials[i]->GetName().C_Str(),
+         false))
+      {
+         continue;
+      }
+
       AppMesh::appMaterials.push_back(new AssimpAppMaterial(mScene->mMaterials[i]));
    }
 
