@@ -336,15 +336,16 @@ void AssimpShapeLoader::enumerateScene()
 
    // Load all materials
    AssimpAppMaterial::sDefaultMatNumber = 0;
-   for (U32 i = 0; i < mScene->mNumMaterials; ++i) {
-
+   AssimpAppMesh::sMaterialRemap.setSize(mScene->mNumMaterials);
+   for (U32 i = 0; i < mScene->mNumMaterials; ++i)
+   {
       if (FindMatch::isMatchMultipleExprs(ColladaUtils::getOptions().neverImportMat,
-         mScene->mMaterials[i]->GetName().C_Str(),
-         false))
+         mScene->mMaterials[i]->GetName().C_Str(), false))
       {
+         AssimpAppMesh::sMaterialRemap[i] = TSDrawPrimitive::NoMaterial; // TSDrawPrimitive::NoMaterial
          continue;
       }
-
+      AssimpAppMesh::sMaterialRemap[i] = AppMesh::appMaterials.size();
       AppMesh::appMaterials.push_back(new AssimpAppMaterial(mScene->mMaterials[i]));
    }
 
