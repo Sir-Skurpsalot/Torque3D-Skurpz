@@ -3278,9 +3278,11 @@ U32 ShapeBase::packUpdate(NetConnection *con, U32 mask, BitStream *stream)
             stream->writeInt(image.fireCount,3);            
             stream->writeInt(image.altFireCount,3);
             stream->writeInt(image.reloadCount,3);
+            stream->writeInt(image.altReloadCount,3); //Skurps
             stream->writeFlag(isImageFiring(i));
             stream->writeFlag(isImageAltFiring(i));
             stream->writeFlag(isImageReloading(i));
+            stream->writeFlag(isImageAltReloading(i)); //Skurps
          }
    }
 
@@ -3421,6 +3423,7 @@ void ShapeBase::unpackUpdate(NetConnection *con, BitStream *stream)
             S32 count = stream->readInt(3);
             S32 altCount = stream->readInt(3);
             S32 reloadCount = stream->readInt(3);
+            S32 altReloadCount = stream->readInt(3); //Skurps
 
             bool datablockChange = image.dataBlock != imageData;
             if (datablockChange || (image.skinNameHandle != skinDesiredNameHandle))
@@ -3447,6 +3450,7 @@ void ShapeBase::unpackUpdate(NetConnection *con, BitStream *stream)
             bool isFiring = stream->readFlag();
             bool isAltFiring = stream->readFlag();
             bool isReloading = stream->readFlag();
+            bool isAltReloading = stream->readFlag(); //Skurps
 
             if (isProperlyAdded()) {
                // Normal processing
@@ -3468,6 +3472,12 @@ void ShapeBase::unpackUpdate(NetConnection *con, BitStream *stream)
                   image.reloadCount = reloadCount;
                   setImageState(i,getImageReloadState(i),true);
                }
+               else if (altReloadCount != image.altReloadCount) // Skurps
+               {
+                  image.altReloadCount = altReloadCount;
+                  setImageState(i,getImageAltReloadState(i),true);
+               }
+
 
                if (processFiring && imageData)
                {
@@ -3485,12 +3495,15 @@ void ShapeBase::unpackUpdate(NetConnection *con, BitStream *stream)
                   image.fireCount = count;
                   image.altFireCount = altCount;
                   image.reloadCount = reloadCount;
+                  image.altReloadCount = altReloadCount; // Skurps
                   if (isFiring)
                      setImageState(i,getImageFireState(i),true);
                   else if (isAltFiring)
                      setImageState(i,getImageAltFireState(i),true);
                   else if (isReloading)
                      setImageState(i,getImageReloadState(i),true);
+                   else if (isAltReloading) // Skurps
+                     setImageState(i,getImageAltReloadState(i),true);
                }
             }
          }
