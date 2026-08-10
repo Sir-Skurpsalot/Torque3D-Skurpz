@@ -300,18 +300,23 @@ void GuiInspector::clearGroups()
    if( isMethod( "onClear" ) )
       Con::executef( this, "onClear" );
 
-   Vector<GuiInspectorGroup*>::iterator i = mGroups.begin();
+   // We want to do a copy here, because if anything kicks off a 
+   // forced refresh of the inspector while we're making changes or referencing
+   // one of the groups, it can cause a crash.
+   // Making a copy while we walk through to clear this out prevents the bad
+   // reference.
+   Vector<GuiInspectorGroup*> groups;
+   groups.merge( mGroups );
+   mGroups.clear();
 
    freeze(true);
 
    // Delete Groups
-   for( ; i != mGroups.end(); i++ )
+   for( Vector<GuiInspectorGroup*>::iterator i = groups.begin(); i != groups.end(); i++ )
    {
       if((*i) && (*i)->isProperlyAdded())
          (*i)->deleteObject();
-   }   
-
-   mGroups.clear();
+   }
 
    freeze(false);
    updatePanes();
@@ -797,6 +802,12 @@ void GuiInspector::updateVisibility()
 
 		for (GuiInspectorGroup* group : mGroups)
 		{
+         if (!group) return;
+
+         //We want dynamic fields group ot always display even if there are no fields under it so you can add new ones
+         if (group->getGroupName() == String("Dynamic Fields"))
+            continue;
+
 			const AbstractClassRep::Field* g = target->findField(group->getGroupName().c_str());
 
 			// if group has its own visibility function let it control it.
