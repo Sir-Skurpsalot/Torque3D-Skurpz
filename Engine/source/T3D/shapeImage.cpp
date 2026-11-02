@@ -258,7 +258,6 @@ ShapeBaseImageData::ShapeBaseImageData()
       stateShapeSequence[i] = 0;
       stateScaleShapeSequence[i] = false;
 
-      INIT_SOUNDASSET_ARRAY(stateSound, i);
       stateScript[i] = 0;
       stateEmitter[i] = 0;
       stateEmitterTime[i] = 0;
@@ -389,7 +388,6 @@ bool ShapeBaseImageData::onAdd()
          s.shapeSequence = stateShapeSequence[i];
          s.shapeSequenceScale = stateScaleShapeSequence[i];
 
-         //_setstateSound(getstateSound(i),i);
          handleStateSoundTrack(i);
 
          s.script = stateScript[i];
@@ -447,7 +445,7 @@ bool ShapeBaseImageData::preload(bool server, String &errorStr)
             if (!Sim::findObject(SimObjectId((uintptr_t)state[i].emitter), state[i].emitter))
                Con::errorf(ConsoleLogEntry::General, "Error, unable to load emitter for image datablock");
 
-         if (!isstateSoundValid(i))
+         if (mStateSoundAssetRef[i].isNull())
          {
             //return false; -TODO: trigger asset download
          }
@@ -624,36 +622,7 @@ void ShapeBaseImageData::handleStateSoundTrack(const U32& stateId)
 
    StateData& s = state[stateId];
 
-   s.sound = getstateSoundAsset(stateId);
-
-   if (s.sound == NULL)
-   {
-      if (mstateSoundName[stateId] != StringTable->EmptyString())
-      {
-         //ok, so we've got some sort of special-case here like a fallback or SFXPlaylist. So do the hook-up now
-         SFXTrack* sndTrack;
-         if (!Sim::findObject(mstateSoundName[stateId], sndTrack))
-         {
-            Con::errorf("ShapeBaseImageData::onAdd() - attempted to find sound %s but failed!", mstateSoundName[stateId]);
-         }
-         else
-         {
-            s.soundTrack = sndTrack;
-         }
-      }
-      else if (mstateSoundSFXId[stateId] != 0)
-      {
-         SFXTrack* sndTrack;
-         if (!Sim::findObject(mstateSoundSFXId[stateId], sndTrack))
-         {
-            Con::errorf("ShapeBaseImageData::onAdd() - attempted to find sound %i but failed!", mstateSoundSFXId[stateId]);
-         }
-         else
-         {
-            s.soundTrack = sndTrack;
-         }
-      }
-   }
+   s.sound = mStateSoundAssetRef[stateId].assetPtr;
 }
 
 S32 ShapeBaseImageData::lookupState(const char* name)
@@ -1024,7 +993,9 @@ void ShapeBaseImageData::initPersistFields()
       addField( "stateScaleShapeSequence", TypeBool, Offset(stateScaleShapeSequence, ShapeBaseImageData), MaxStates,
          "Indicates if the sequence to be played on the mounting shape should be scaled to the length of the state." );
 
-      INITPERSISTFIELD_SOUNDASSET_ARRAY(stateSound, MaxStates, ShapeBaseImageData, "State sound.");
+      ADD_FIELD("stateSoundAsset", TypeSoundAssetRef, Offset(mStateSoundAssetRef, ShapeBaseImageData))
+         .elements(MaxStates)
+         .doc("State sound.");
 
       addField( "stateScript", TypeCaseString, Offset(stateScript, ShapeBaseImageData), MaxStates,
          "@brief Method to execute on entering this state.\n\n"
@@ -1257,7 +1228,7 @@ void ShapeBaseImageData::packData(BitStream* stream)
             }
          }
 
-         PACKDATA_SOUNDASSET_ARRAY(stateSound, i);
+         AssetDatabase.packDataAsset(stream, mStateSoundAssetRef[i].assetId);
       }
    stream->write(maxConcurrentSounds);
    stream->writeFlag(useRemainderDT);
@@ -1478,7 +1449,7 @@ void ShapeBaseImageData::unpackData(BitStream* stream)
          else
             s.emitter = 0;
             
-         UNPACKDATA_SOUNDASSET_ARRAY(stateSound, i);
+         mStateSoundAssetRef[i] = AssetDatabase.unpackDataAsset(stream);
          handleStateSoundTrack(i);
       }
    }
