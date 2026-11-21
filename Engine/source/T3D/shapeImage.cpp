@@ -1527,7 +1527,7 @@ ShapeBase::MountedImage::~MountedImage()
    }
 
    // stop sound
-   for(Vector<SFXSource*>::iterator i = mSoundSources.begin(); i != mSoundSources.end(); i++)  
+   for(Vector<SimObjectPtr<SFXSource>>::iterator i = mSoundSources.begin(); i != mSoundSources.end(); i++)  
    {  
       SFX_DELETE((*i));  
    }  
@@ -2542,7 +2542,7 @@ void ShapeBase::resetImageSlot(U32 imageSlot)
    }
 
    // stop sound
-   for(Vector<SFXSource*>::iterator i = image.mSoundSources.begin(); i != image.mSoundSources.end(); i++)  
+   for(Vector<SimObjectPtr<SFXSource>>::iterator i = image.mSoundSources.begin(); i != image.mSoundSources.end(); i++)  
    {  
       SFX_DELETE((*i));  
    }  
@@ -2906,7 +2906,7 @@ void ShapeBase::setImageState(U32 imageSlot, U32 newState, bool force)
    // lastState does not return an id for the prev state so we keep track of it.
    if (lastState->sound && lastState->sound->getSFXTrack()->getDescription()->mIsLooping)
    {  
-      for (Vector<SFXSource*>::iterator i = image.mSoundSources.begin(); i != image.mSoundSources.end(); i++)
+      for (Vector<SimObjectPtr<SFXSource>>::iterator i = image.mSoundSources.begin(); i != image.mSoundSources.end(); i++)
          SFX_DELETE((*i));    
 
       image.mSoundSources.clear();  
